@@ -341,6 +341,61 @@ describe('Sender', () => {
       );
     });
 
+    it('throws an error if the second argument is invalid', () => {
+      const mockSocket = new MockSocket();
+      const sender = new Sender(mockSocket);
+
+      assert.throws(
+        () => sender.close(1000, new Float32Array(20)),
+        /^TypeError: Second argument must be a string or a Uint8Array$/
+      );
+    });
+
+    it('does not send uninitialized memory if the message is a `TypedArray`', () => {
+      const chunks = [];
+      const mockSocket = new MockSocket({
+        write: (data) => {
+          chunks.push(Buffer.from(data));
+        }
+      });
+      const sender = new Sender(mockSocket);
+
+      //
+      // `Buffer.byteLength()` returns the byte length of the view while
+      // `buf.set()` only copies `view.length` elements. For any view whose
+      // elements are wider than one byte the two disagree, so the tail of the
+      // frame allocated with `Buffer.allocUnsafe()` was left uninitialized and
+      // sent on the wire.
+      //
+      const views = [
+        new Int16Array(20),
+        new Uint16Array(20),
+        new Int32Array(20),
+        new Uint32Array(20),
+        new Float32Array(20),
+        new Float64Array(10)
+      ];
+
+      for (const view of views) {
+        assert.throws(
+          () => sender.close(1000, view),
+          /^TypeError: Second argument must be a string or a Uint8Array$/
+        );
+      }
+
+      assert.deepStrictEqual(chunks, []);
+
+      //
+      // A `Uint8Array` is still a valid message and is framed in full.
+      //
+      sender.close(1000, new Uint8Array([0x66, 0x6f, 0x6f]), false);
+
+      assert.deepStrictEqual(
+        Buffer.concat(chunks),
+        Buffer.from([0x88, 0x05, 0x03, 0xe8, 0x66, 0x6f, 0x6f])
+      );
+    });
+
     it('should consume all data before closing', (done) => {
       const perMessageDeflate = new PerMessageDeflate();
 

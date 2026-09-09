@@ -2741,6 +2741,28 @@ describe('WebSocket', () => {
   });
 
   describe('#close', () => {
+    it('does not send uninitialized memory if the reason is a `TypedArray`', (done) => {
+      const wss = new WebSocket.Server({ port: 0 }, () => {
+        const ws = new WebSocket(`ws://localhost:${wss.address().port}`);
+
+        ws.on('open', () => {
+          //
+          // The close frame used to be allocated with `Buffer.byteLength()`
+          // bytes but only filled with `view.length` bytes, so the remaining
+          // bytes of the frame were uninitialized memory.
+          //
+          assert.throws(
+            () => ws.close(1000, new Float32Array(20)),
+            /^TypeError: Second argument must be a string or a Uint8Array$/
+          );
+
+          ws.terminate();
+        });
+
+        ws.on('close', () => wss.close(done));
+      });
+    });
+
     it('closes the connection if called while connecting (1/3)', (done) => {
       const wss = new WebSocket.Server({ port: 0 }, () => {
         const ws = new WebSocket(`ws://localhost:${wss.address().port}`);
